@@ -10,8 +10,8 @@ static void render_item(const config_t *cfg, const entry_t *entry, buf_t *out) {
     const options_t *opt = &cfg->opt;
     const char *icon = NULL;
     const char *color = NULL;
-    const char *rule_icon = NULL;
-    const char *rule_color = NULL;
+    style_t style;
+    int rules_apply;
 
     switch (entry->kind) {
     case ENTRY_DIR:
@@ -32,13 +32,18 @@ static void render_item(const config_t *cfg, const entry_t *entry, buf_t *out) {
         break;
     }
 
-    /* Rules refine the per type defaults, whatever the entry is. */
-    config_match(cfg, entry->name, &rule_icon, &rule_color);
-    if (rule_icon) {
-        icon = rule_icon;
+    /*
+     * Rules refine the per type defaults. The type of an entry is a
+     * structural property, so it wins over the extension rules, but an
+     * exact name rule is specific enough to override anything.
+     */
+    rules_apply = entry->kind == ENTRY_FILE || entry->kind == ENTRY_OTHER;
+    config_match(cfg, entry->name, &style);
+    if (style.icon && (rules_apply || style.icon_spec == SPEC_NAME)) {
+        icon = style.icon;
     }
-    if (rule_color) {
-        color = rule_color;
+    if (style.color && (rules_apply || style.color_spec == SPEC_NAME)) {
+        color = style.color;
     }
 
     if (entry->hidden && opt->hidden_color) {

@@ -38,19 +38,36 @@ void listing_free(listing_t *listing) {
 }
 
 /*
- * Classify an entry. The directory file descriptor is used so the name is
- * resolved relative to the directory being listed, and the type reported by
- * readdir is trusted when available, which avoids a stat() call per
- * directory.
+ * Classify an entry.
+ *
+ * The type reported by readdir is trusted whenever the filesystem provides
+ * it, which removes a stat() call per entry. Only regular files need the
+ * mode, and only to tell executables apart, so that lookup can be skipped
+ * as well. The directory file descriptor is used so the name is resolved
+ * relative to the directory being listed and not to the current one.
  */
-static entry_kind_t classify(int dir_fd, const char *name, unsigned char d_type) {
+static entry_kind_t classify(int dir_fd, const char *name, unsigned char d_type,
+                             int detect_exec) {
     struct stat info;
 
-    if (d_type == DT_DIR) {
+    switch (d_type) {
+    case DT_DIR:
         return ENTRY_DIR;
+    case DT_LNK:
+        return ENTRY_LINK;
+    case DT_REG:
+        if (!detect_exec) {
+            return ENTRY_FILE;
+        }
+        break;
+    case DT_UNKNOWN:
+        break;
+    default:
+        return ENTRY_OTHER;
     }
-    if (fstatat(dir_fd, name, &info, 0) != 0) {
-        return d_type == DT_LNK ? ENTRY_LINK : ENTRY_FILE;
+
+    if (fstatat(dir_fd, name, &info, AT_SYMLINK_NOFOLLOW) != 0) {
+        return d_type == DT_REG ? ENTRY_FILE : ENTRY_OTHER;
     }
     if (S_ISDIR(info.st_mode)) {
         return ENTRY_DIR;
@@ -59,7 +76,7 @@ static entry_kind_t classify(int dir_fd, const char *name, unsigned char d_type)
         return ENTRY_LINK;
     }
     if (S_ISREG(info.st_mode)) {
-        if (info.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
+        if (detect_exec && (info.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))) {
             return ENTRY_EXEC;
         }
         return ENTRY_FILE;
@@ -67,7 +84,8 @@ static entry_kind_t classify(int dir_fd, const char *name, unsigned char d_type)
     return ENTRY_OTHER;
 }
 
-int list_directory(const char *path, int show_hidden, listing_t *out) {
+int list_directory(const char *path, int show_hidden, int detect_exec,
+                   listing_t *out) {
     DIR *dir = opendir(path);
     struct dirent *entry;
     int dir_fd;
@@ -90,7 +108,8 @@ int list_directory(const char *path, int show_hidden, listing_t *out) {
         if (hidden && !show_hidden) {
             continue;
         }
-        listing_push(out, name, classify(dir_fd, name, entry->d_type), hidden);
+        listing_push(out, name,
+                     classify(dir_fd, name, entry->d_type, detect_exec), hidden);
     }
 
     closedir(dir);

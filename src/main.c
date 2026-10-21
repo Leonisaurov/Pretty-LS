@@ -206,7 +206,8 @@ int main(int argc, char **argv) {
     listing.items = NULL;
     listing.count = 0;
     listing.cap = 0;
-    if (list_directory(target, config.opt.show_hidden, &listing) != 0) {
+    if (list_directory(target, config.opt.show_hidden, config.opt.detect_exec,
+                       &listing) != 0) {
         status = 1;
         goto cleanup;
     }

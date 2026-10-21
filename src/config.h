@@ -7,16 +7,25 @@
 
 #include "hashmap.h"
 
+/* How specific a rule is; the more specific rule wins. */
+typedef enum {
+    SPEC_NONE = 0,
+    SPEC_GLOB = 1, /* "*.tar.gz" */
+    SPEC_EXT  = 2, /* "*.html" */
+    SPEC_NAME = 3  /* "Makefile" */
+} rule_spec_t;
+
 /* One styling rule. `icon`/`color` are NULL when the rule does not define them. */
 typedef struct {
-    char    *pattern;
-    char    *icon;
-    char    *color;
-    uint32_t seq;      /* definition order, used to resolve conflicting rules */
-    size_t   index;    /* position in the ordered rule list */
-    char    *prefix;   /* literal prefix before the first wildcard */
-    size_t   prefix_len;
-    int      is_glob;  /* pattern needs glob matching */
+    char       *pattern;
+    char       *icon;
+    char       *color;
+    uint32_t    seq;      /* definition order, used to resolve conflicting rules */
+    size_t      index;    /* position in the ordered rule list */
+    char       *prefix;   /* literal prefix before the first wildcard */
+    size_t      prefix_len;
+    int         is_glob;  /* pattern needs glob matching */
+    rule_spec_t spec;
 } rule_t;
 
 /* Global settings, all overridable from a configuration file. */
@@ -28,6 +37,7 @@ typedef struct {
     int    dir_first;
     int    use_icons;
     int    use_color;
+    int    detect_exec;
     int    sort_name;
     char  *default_icon;
     char  *default_color;
@@ -67,9 +77,16 @@ int  config_set_option(config_t *cfg, const char *key, const char *value);
 void config_define_rule(config_t *cfg, const char *pattern, const char *icon,
                         const char *color);
 
+/* Styling resolved for a file name, with the specificity of each attribute. */
+typedef struct {
+    const char *icon;
+    const char *color;
+    rule_spec_t icon_spec;
+    rule_spec_t color_spec;
+} style_t;
+
 /* Resolve the icon and colour for a file name. Both outputs may be NULL. */
-void config_match(const config_t *cfg, const char *name, const char **icon,
-                  const char **color);
+void config_match(const config_t *cfg, const char *name, style_t *out);
 
 /* Human readable dump of the effective configuration. */
 void config_dump(const config_t *cfg, FILE *out);

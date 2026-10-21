@@ -95,17 +95,25 @@ spacing = 1
 default_icon = -
 rule.*.html = @ 10;20;30
 rule.*.txt = - 40;50;60
-rule.Makefile = # 70;80;90
+rule.Makefile = ! 70;80;90
 rule.*.tar.gz = % -
 EOF
 
 OUT="$("$PLS" -c "$WORK/rules.conf" .)"
 assert_contains "$OUT" "@ index.html" "extension rule sets the icon"
 assert_contains "$OUT" $'\033[38;2;10;20;30m' "extension rule sets the colour"
-assert_contains "$OUT" "# Makefile" "exact name rule matches"
+assert_contains "$OUT" "! Makefile" "exact name rule matches"
 assert_contains "$OUT" "% archive.tar.gz" "multi dot glob rule matches"
 assert_not_contains "$OUT" "@ notes.txt" "rule does not leak to other files"
 assert_contains "$OUT" $'\033[38;2;40;50;60m' "partial rule keeps the inherited icon"
+
+# A '#' starts a comment, everything after it is ignored.
+cat > "$WORK/comment.conf" <<'EOF'
+rule.*.html = @ 10;20;30 # this is a comment
+EOF
+OUT="$("$PLS" -c "$WORK/comment.conf" .)"
+assert_contains "$OUT" "@ index.html" "ignores trailing comments"
+assert_not_contains "$OUT" "10;20;30 #" "does not keep the comment in the value"
 
 # The last matching rule wins.
 cat > "$WORK/order.conf" <<'EOF'
@@ -124,6 +132,40 @@ rule.*.html = over 2;2;2
 EOF
 OUT="$("$PLS" -c "$WORK/base.conf" -c "$WORK/over.conf" .)"
 assert_contains "$OUT" "over index.html" "a later file overrides an earlier one"
+
+# --- entry kinds ----------------------------------------------------------
+cd "$WORK/tree" || exit 1
+printf '#!/bin/sh\n' > runner.sh
+chmod +x runner.sh
+ln -sf index.html link.html
+ln -sf nowhere broken.link
+mkfifo pipe 2>/dev/null
+
+OUT="$("$PLS" .)"
+assert_contains "$OUT" $'\uea86 runner.sh' "marks executables"
+assert_contains "$OUT" $'\uf0c1 link.html' "marks symlinks"
+assert_contains "$OUT" $'\uf0c1 broken.link' "marks broken symlinks"
+assert_contains "$OUT" $'\ue5ff subdir' "marks directories"
+
+cat > "$WORK/noexec.conf" <<'EOF'
+exec_icons = false
+EOF
+OUT="$("$PLS" -c "$WORK/noexec.conf" .)"
+assert_not_contains "$OUT" $'\uea86 runner.sh' "exec_icons = false drops the exec icon"
+
+# An exact name rule overrides the icon of any kind of entry.
+cat > "$WORK/special.conf" <<'EOF'
+rule.subdir = S 1;2;3
+EOF
+OUT="$("$PLS" -c "$WORK/special.conf" .)"
+assert_contains "$OUT" "S subdir" "an exact name rule overrides the directory icon"
+
+# An extension rule does not override the icon of an executable.
+cp script.py exec.py
+chmod +x exec.py
+OUT="$("$PLS" .)"
+assert_contains "$OUT" $'\uea86 exec.py' "an extension rule does not override the exec icon"
+rm -f runner.sh link.html broken.link pipe exec.py
 
 # --- local configuration --------------------------------------------------
 cat > "$WORK/tree/.prettylsrc" <<'EOF'

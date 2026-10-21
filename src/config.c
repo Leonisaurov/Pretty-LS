@@ -34,6 +34,7 @@ static const opt_def_t OPT_DEFS[] = {
     { "dir_first",    OPT_BOOL,  offsetof(options_t, dir_first) },
     { "icons",        OPT_BOOL,  offsetof(options_t, use_icons) },
     { "color",        OPT_BOOL,  offsetof(options_t, use_color) },
+    { "exec_icons",   OPT_BOOL,  offsetof(options_t, detect_exec) },
     { "sort",         OPT_SORT,  offsetof(options_t, sort_name) },
     { "default_icon", OPT_STR,   offsetof(options_t, default_icon) },
     { "default_color", OPT_COLOR, offsetof(options_t, default_color) },
@@ -57,6 +58,7 @@ static const char *const DEFAULT_CONFIG[] = {
     "dir_first = false",
     "icons = true",
     "color = true",
+    "exec_icons = true",
     "sort = name",
     "default_icon = \\uf016",
     "default_color = -",
@@ -247,12 +249,19 @@ static int has_wildcard(const char *pattern) {
     return strpbrk(pattern, "*?") != NULL;
 }
 
-/* "*.html" (no wildcards in the extension) is served from a hash table. */
+/*
+ * "*.html" is served from a hash table keyed by the extension, which is only
+ * possible when the extension has no dot of its own: the lookup uses the
+ * last dot of the file name, so "*.tar.gz" has to go through the glob path.
+ */
 static int is_extension_pattern(const char *pattern) {
     if (pattern[0] != '*' || pattern[1] != '.' || pattern[2] == '\0') {
         return 0;
     }
-    return strpbrk(pattern + 2, "*?") == NULL;
+    if (strpbrk(pattern + 2, "*?") != NULL) {
+        return 0;
+    }
+    return strchr(pattern + 2, '.') == NULL;
 }
 
 static char *pattern_prefix(const char *pattern) {
@@ -273,6 +282,7 @@ void config_init(config_t *cfg) {
     cfg->opt.dir_first = 0;
     cfg->opt.use_icons = 1;
     cfg->opt.use_color = 1;
+    cfg->opt.detect_exec = 1;
     cfg->opt.sort_name = 1;
 
     hashmap_create(16, &cfg->by_pattern);
@@ -339,6 +349,13 @@ void config_define_rule(config_t *cfg, const char *pattern, const char *icon,
     rule->is_glob = has_wildcard(pattern) && !is_extension_pattern(pattern);
     rule->prefix = pattern_prefix(pattern);
     rule->prefix_len = strlen(rule->prefix);
+    if (!has_wildcard(pattern)) {
+        rule->spec = SPEC_NAME;
+    } else if (is_extension_pattern(pattern)) {
+        rule->spec = SPEC_EXT;
+    } else {
+        rule->spec = SPEC_GLOB;
+    }
 
     if (cfg->n_rules == cfg->cap_rules) {
         cfg->cap_rules = cfg->cap_rules ? cfg->cap_rules * 2 : 16;
@@ -388,10 +405,13 @@ int config_set_option(config_t *cfg, const char *key, const char *value) {
             return 0;
         }
         case OPT_STR: {
+            char *decoded;
             if (!strcmp(value, "-")) {
                 set_str((char **)slot, NULL);
             } else {
-                set_str((char **)slot, value);
+                decoded = unescape(value);
+                set_str((char **)slot, decoded);
+                free(decoded);
             }
             return 0;
         }
@@ -525,41 +545,49 @@ void config_load_defaults(config_t *cfg) {
     }
 }
 
-static void consider(const rule_t *rule, const char **icon, int *have_icon,
-                     uint32_t *icon_seq, const char **color, int *have_color,
-                     uint32_t *color_seq) {
+/* Internal state used while resolving the rules that apply to a name. */
+typedef struct {
+    style_t  style;
+    uint32_t icon_seq;
+    uint32_t color_seq;
+} match_state_t;
+
+static void consider(const rule_t *rule, match_state_t *state) {
     if (!rule) {
         return;
     }
-    if (rule->icon && (!*have_icon || rule->seq > *icon_seq)) {
-        *icon = rule->icon;
-        *icon_seq = rule->seq;
-        *have_icon = 1;
+    if (rule->icon && (state->style.icon_spec == SPEC_NONE ||
+                       rule->seq > state->icon_seq)) {
+        state->style.icon = rule->icon;
+        state->style.icon_spec = rule->spec;
+        state->icon_seq = rule->seq;
     }
-    if (rule->color && (!*have_color || rule->seq > *color_seq)) {
-        *color = rule->color;
-        *color_seq = rule->seq;
-        *have_color = 1;
+    if (rule->color && (state->style.color_spec == SPEC_NONE ||
+                        rule->seq > state->color_seq)) {
+        state->style.color = rule->color;
+        state->style.color_spec = rule->spec;
+        state->color_seq = rule->seq;
     }
 }
 
-void config_match(const config_t *cfg, const char *name, const char **icon_out,
-                  const char **color_out) {
-    const char *icon = NULL;
-    const char *color = NULL;
-    uint32_t icon_seq = 0;
-    uint32_t color_seq = 0;
-    int have_icon = 0;
-    int have_color = 0;
+void config_match(const config_t *cfg, const char *name, style_t *out) {
     const char *ext = path_extension(name);
+    match_state_t state;
     size_t i;
+
+    state.style.icon = NULL;
+    state.style.color = NULL;
+    state.style.icon_spec = SPEC_NONE;
+    state.style.color_spec = SPEC_NONE;
+    state.icon_seq = 0;
+    state.color_seq = 0;
 
     consider((const rule_t *)hashmap_get(&cfg->by_name, name,
                                          (hashmap_uint32_t)strlen(name)),
-             &icon, &have_icon, &icon_seq, &color, &have_color, &color_seq);
+             &state);
     consider((const rule_t *)hashmap_get(&cfg->by_ext, ext,
                                          (hashmap_uint32_t)strlen(ext)),
-             &icon, &have_icon, &icon_seq, &color, &have_color, &color_seq);
+             &state);
 
     for (i = 0; i < cfg->n_globs; i++) {
         const rule_t *rule = cfg->globs[i];
@@ -570,12 +598,10 @@ void config_match(const config_t *cfg, const char *name, const char **icon_out,
         if (!glob_match(rule->pattern, name)) {
             continue;
         }
-        consider(rule, &icon, &have_icon, &icon_seq, &color, &have_color,
-                 &color_seq);
+        consider(rule, &state);
     }
 
-    *icon_out = icon;
-    *color_out = color;
+    *out = state.style;
 }
 
 void config_dump(const config_t *cfg, FILE *out) {
@@ -588,6 +614,7 @@ void config_dump(const config_t *cfg, FILE *out) {
     fprintf(out, "  dir_first     = %s\n", cfg->opt.dir_first ? "true" : "false");
     fprintf(out, "  icons         = %s\n", cfg->opt.use_icons ? "true" : "false");
     fprintf(out, "  color         = %s\n", cfg->opt.use_color ? "true" : "false");
+    fprintf(out, "  exec_icons    = %s\n", cfg->opt.detect_exec ? "true" : "false");
     fprintf(out, "  sort          = %s\n", cfg->opt.sort_name ? "name" : "none");
     fprintf(out, "  default_icon  = %s\n", cfg->opt.default_icon ? cfg->opt.default_icon : "-");
     fprintf(out, "  default_color = %s\n", cfg->opt.default_color ? cfg->opt.default_color : "-");
