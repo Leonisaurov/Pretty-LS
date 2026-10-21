@@ -1,1 +1,8 @@
-gcc -o main main.c && cp main $BIN/pls
+#!/bin/sh
+# Build and install pretty-ls into $BIN (default /usr/local/bin).
+set -e
+
+cd "$(dirname "$0")"
+make -s release
+install -d "${BIN:-/usr/local/bin}"
+install -m 0755 build/pls "${BIN:-/usr/local/bin}/pls"
