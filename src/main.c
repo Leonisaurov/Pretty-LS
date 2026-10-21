@@ -95,6 +95,10 @@ int main(int argc, char **argv) {
     int status = 0;
     int i;
 
+    listing.items = NULL;
+    listing.count = 0;
+    listing.cap = 0;
+
     for (i = 1; i < argc; i++) {
         const char *arg = argv[i];
 
@@ -203,9 +207,6 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
 
-    listing.items = NULL;
-    listing.count = 0;
-    listing.cap = 0;
     if (list_directory(target, config.opt.show_hidden, config.opt.detect_exec,
                        &listing) != 0) {
         status = 1;
@@ -220,9 +221,9 @@ int main(int argc, char **argv) {
         fwrite(output.data, 1, output.len, stdout);
     }
     buf_free(&output);
-    listing_free(&listing);
 
 cleanup:
+    listing_free(&listing);
     free(global_config);
     free(local_config);
     config_free(&config);

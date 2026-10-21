@@ -12,9 +12,12 @@ SRCS    := $(wildcard $(SRCDIR)/*.c)
 OBJS    := $(patsubst $(SRCDIR)/%.c,$(BUILD)/%.o,$(SRCS))
 DEPS    := $(OBJS:.o=.d)
 
-.PHONY: all clean install uninstall test
+.PHONY: all clean install uninstall test release
 
 all: $(BIN)
+
+release: clean
+	$(MAKE) all
 
 $(BIN): $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)

@@ -346,7 +346,6 @@ void config_define_rule(config_t *cfg, const char *pattern, const char *icon,
     rule->icon = icon ? xstrdup(icon) : NULL;
     rule->color = color ? xstrdup(color) : NULL;
     rule->seq = ++cfg->seq;
-    rule->is_glob = has_wildcard(pattern) && !is_extension_pattern(pattern);
     rule->prefix = pattern_prefix(pattern);
     rule->prefix_len = strlen(rule->prefix);
     if (!has_wildcard(pattern)) {
@@ -361,7 +360,6 @@ void config_define_rule(config_t *cfg, const char *pattern, const char *icon,
         cfg->cap_rules = cfg->cap_rules ? cfg->cap_rules * 2 : 16;
         cfg->rules = xrealloc(cfg->rules, cfg->cap_rules * sizeof(*cfg->rules));
     }
-    rule->index = cfg->n_rules;
     cfg->rules[cfg->n_rules++] = rule;
 
     hashmap_put(&cfg->by_pattern, rule->pattern, (hashmap_uint32_t)len, rule);

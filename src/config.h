@@ -21,10 +21,8 @@ typedef struct {
     char       *icon;
     char       *color;
     uint32_t    seq;      /* definition order, used to resolve conflicting rules */
-    size_t      index;    /* position in the ordered rule list */
     char       *prefix;   /* literal prefix before the first wildcard */
     size_t      prefix_len;
-    int         is_glob;  /* pattern needs glob matching */
     rule_spec_t spec;
 } rule_t;
 

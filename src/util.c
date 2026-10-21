@@ -1,7 +1,6 @@
 #include "util.h"
 
 #include <ctype.h>
-#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -91,21 +90,6 @@ void buf_puts(buf_t *buf, const char *s) {
 void buf_putc(buf_t *buf, char c) {
     buf_reserve(buf, 1);
     buf->data[buf->len++] = c;
-}
-
-void buf_printf(buf_t *buf, const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    va_list copy;
-    va_copy(copy, args);
-    int needed = vsnprintf(NULL, 0, fmt, copy);
-    va_end(copy);
-    if (needed > 0) {
-        buf_reserve(buf, (size_t)needed + 1);
-        vsnprintf(buf->data + buf->len, (size_t)needed + 1, fmt, args);
-        buf->len += (size_t)needed;
-    }
-    va_end(args);
 }
 
 void buf_trim_spaces(buf_t *buf, size_t count) {

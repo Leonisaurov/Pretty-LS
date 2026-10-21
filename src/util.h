@@ -24,7 +24,6 @@ void buf_free(buf_t *buf);
 void buf_append(buf_t *buf, const char *data, size_t len);
 void buf_puts(buf_t *buf, const char *s);
 void buf_putc(buf_t *buf, char c);
-void buf_printf(buf_t *buf, const char *fmt, ...);
 /* Drop up to `count` trailing spaces; used to keep lines free of trailing blanks. */
 void buf_trim_spaces(buf_t *buf, size_t count);
 
